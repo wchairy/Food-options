@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="theme-color" content="#0e9488" />
+<title>28th Ave Food Map · Portland</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --surface-soft: #f5f3ee;
+    --ink: #2a2620;
+    --ink-soft: #6b635a;
+    --ink-muted: #9a9188;
+    --border: #e8e3db;
+    --border-strong: #d4ccc0;
+    --accent: #0e9488;
+    --accent-soft: #d6eeeb;
+    --star: #d4a017;
+
+    --shadow-1: 0 1px 2px rgba(42,38,32,0.08), 0 1px 3px rgba(42,38,32,0.05);
+    --shadow-2: 0 4px 12px rgba(42,38,32,0.12), 0 2px 4px rgba(42,38,32,0.06);
+    --shadow-sheet: 0 -4px 20px rgba(42,38,32,0.12);
+
+    --radius: 10px;
+    --sheet-peek: 140px;
+    --header-h: 56px;
+    --filter-h: 52px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  .header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: calc(var(--header-h) + var(--safe-top));
+    padding-top: var(--safe-top);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    padding-left: 14px;
+    padding-right: 14px;
+    gap: 10px;
+  }
+
+  .header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .header .subtitle {
+    font-size: 12px;
+    color: var(--ink-muted);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    max-width: 320px;
+  }
+
+  .search-input {
+    width: 100%;
+    height: 36px;
+    padding: 0 30px 0 34px;
+    font-size: 14px;
+    font-family: inherit;
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    background: var(--surface-soft);
+    color: var(--ink);
+    outline: none;
+    transition: border-color .15s, background .15s;
+  }
+  .search-input:focus {
+    border-color: var(--accent);
+    background: var(--surface);
+  }
+  .search-input::placeholder { color: var(--ink-muted); }
+
+  .search-icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px; height: 15px;
+    color: var(--ink-muted);
+    pointer-events: none;
+  }
+
+  .clear-btn {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px; height: 22px;
+    border: none;
+    background: var(--ink-muted);
+    color: white;
+    border-radius: 50%;
+    font-size: 14px;
+    line-height: 22px;
+    cursor: pointer;
+    display: none;
+    padding: 0;
+  }
+  .clear-btn.visible { display: block; }
+
+  .center-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 36px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    color: white;
+    background: var(--accent);
+    border: none;
+    border-radius: 18px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s, transform .1s;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .center-btn:hover { background: #0b7d72; }
+  .center-btn:active { transform: scale(0.96); }
+  .center-icon { width: 15px; height: 15px; flex-shrink: 0; }
+  .center-label { line-height: 1; }
+
+  /* On narrow screens, show icon only */
+  @media (max-width: 520px) {
+    .center-label { display: none; }
+    .center-btn { padding: 0; width: 36px; justify-content: center; }
+  }
+
+  /* Filter bar */
+  .filter-bar {
+    position: fixed;
+    top: calc(var(--header-h) + var(--safe-top));
+    left: 0; right: 0;
+    height: var(--filter-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .filter-bar::-webkit-scrollbar { display: none; }
+
+  .pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    color: var(--ink-soft);
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s, color .15s, border-color .15s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .pill .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dot);
+  }
+  .pill .count {
+    font-size: 11px;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .pill.active {
+    color: white;
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  .pill.active .count { color: rgba(255,255,255,0.7); }
+
+  .sort-wrap { position: relative; flex: 0 0 auto; margin-left: auto; padding-left: 4px; }
+  .sort-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 10px 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    color: var(--ink-soft);
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .sort-btn::after {
+    content: '▾';
+    font-size: 10px;
+    margin-left: 4px;
+  }
+  .sort-wrap select {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+    font-size: 16px;
+  }
+
+  /* Main layout */
+  .main {
+    position: fixed;
+    top: calc(var(--header-h) + var(--filter-h) + var(--safe-top));
+    left: 0; right: 0; bottom: 0;
+  }
+
+  #map {
+    position: absolute;
+    inset: 0;
+    background: #e8e3db;
+  }
+
+  /* Bottom sheet (mobile) */
+  .sheet {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: var(--surface);
+    border-radius: 16px 16px 0 0;
+    box-shadow: var(--shadow-sheet);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    height: calc(100% - 40px);
+    transform: translateY(calc(100% - var(--sheet-peek) - var(--safe-bottom)));
+    transition: transform .3s cubic-bezier(.32,.72,0,1);
+    will-change: transform;
+  }
+  .sheet.expanded { transform: translateY(0); }
+  .sheet.dragging { transition: none; }
+
+  .sheet-handle {
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 10px 0 6px;
+    cursor: grab;
+    touch-action: none;
+    display: flex;
+    justify-content: center;
+  }
+  .sheet-handle::before {
+    content: '';
+    width: 38px; height: 4px;
+    border-radius: 2px;
+    background: var(--border-strong);
+  }
+  .sheet-handle:active { cursor: grabbing; }
+
+  .sheet-header {
+    flex: 0 0 auto;
+    padding: 4px 16px 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .sheet-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .sheet-count {
+    font-size: 13px;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* List */
+  .list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 12px calc(16px + var(--safe-bottom));
+    overscroll-behavior: contain;
+  }
+
+  .card {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    gap: 10px;
+    align-items: start;
+    padding: 12px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .12s;
+    border-bottom: 1px solid var(--border);
+    min-height: 56px;
+  }
+  .card:last-child { border-bottom: none; }
+  .card:active { background: var(--surface-soft); }
+  .card.highlighted { background: var(--accent-soft); }
+
+  .card-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--dot);
+    margin-top: 6px;
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px rgba(0,0,0,0.08);
+  }
+
+  .card-body { min-width: 0; }
+
+  .card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.3;
+    margin: 0 0 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-meta {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .card-meta .sep {
+    width: 3px; height: 3px;
+    border-radius: 50%;
+    background: var(--ink-muted);
+    flex-shrink: 0;
+  }
+  .card-meta .rating {
+    color: var(--star);
+    font-weight: 600;
+  }
+  .card-meta .price { color: var(--ink-muted); }
+
+  .card-addr {
+    font-size: 12px;
+    color: var(--ink-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-dist {
+    font-size: 12px;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    padding-top: 4px;
+  }
+
+  .empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--ink-muted);
+    font-size: 14px;
+  }
+
+  /* Map markers */
+  .marker-dot {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 2.5px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    cursor: pointer;
+    transition: transform .15s;
+  }
+  .marker-dot.highlight {
+    transform: scale(1.5);
+    box-shadow: 0 0 0 4px rgba(14,148,136,0.25), 0 2px 6px rgba(0,0,0,0.4);
+  }
+  .leaflet-marker-icon.highlight-parent { z-index: 10000 !important; }
+
+  .center-marker-wrap { pointer-events: none; }
+  .center-marker {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #000;
+    border: 3px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+
+  .leaflet-popup-content-wrapper {
+    border-radius: 10px;
+    box-shadow: var(--shadow-2);
+    font-family: inherit;
+  }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 13px; min-width: 160px; }
+  .leaflet-popup-content .popup-name {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 3px;
+    color: var(--ink);
+  }
+  .leaflet-popup-content .popup-meta {
+    color: var(--ink-soft);
+    font-size: 12px;
+    margin-bottom: 2px;
+  }
+  .leaflet-popup-content .popup-addr {
+    color: var(--ink-muted);
+    font-size: 11.5px;
+  }
+
+  /* Desktop layout */
+  @media (min-width: 768px) {
+    :root { --header-h: 60px; --filter-h: 56px; }
+
+    .header h1 { font-size: 18px; }
+    .header .subtitle { display: inline; font-size: 13px; }
+
+    .main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, 380px);
+    }
+
+    #map {
+      position: relative;
+      inset: auto;
+      grid-column: 1;
+    }
+
+    .sheet {
+      position: relative;
+      grid-column: 2;
+      height: 100%;
+      transform: none !important;
+      border-radius: 0;
+      border-left: 1px solid var(--border);
+      box-shadow: none;
+      transition: none;
+    }
+
+    .sheet-handle { display: none; }
+    .sheet-header { padding: 16px 18px 12px; }
+    .list { padding: 0 10px 20px; }
+
+    .card { padding: 10px 10px; }
+    .card:hover { background: var(--surface-soft); }
+  }
+
+  @media (min-width: 1100px) {
+    .main { grid-template-columns: minmax(0, 1.6fr) minmax(360px, 420px); }
+  }
+
+  @media (max-width: 767px) {
+    .header .subtitle { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1>28th Ave Eats</h1>
+  <div class="search-wrap">
+    <svg class="search-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/>
+    </svg>
+    <input id="search" class="search-input" type="search" placeholder="Search…" autocomplete="off" inputmode="search" />
+    <button id="clear" class="clear-btn" aria-label="Clear search" type="button">×</button>
+  </div>
+  <button id="center-map" class="center-btn" type="button" aria-label="Center map on 28th &amp; Burnside">
+    <svg class="center-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+    </svg>
+    <span class="center-label">Center map</span>
+  </button>
+  <span class="subtitle">Portland, OR</span>
+</header>
+
+<nav class="filter-bar" id="filters" role="toolbar" aria-label="Category filters"></nav>
+
+<main class="main">
+  <div id="map"></div>
+
+  <aside class="sheet" id="sheet">
+    <div class="sheet-handle" id="sheet-handle" role="button" aria-label="Toggle list" tabindex="0"></div>
+    <div class="sheet-header">
+      <span class="sheet-title" id="sheet-title">All places</span>
+      <span class="sheet-count" id="sheet-count"></span>
+    </div>
+    <div id="list" class="list" role="list"></div>
+  </aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const PLACES = [{"id": "ChIJw1ATHL-glVQR6je1841dCaY", "name": "Paadee", "address": "6 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.522742, "lng": -122.637125, "rating": 4.5, "rating_count": 864, "category": "restaurant", "label": "Thai", "price_level": 2, "distance_mi": 0.007, "phone": "+1 503-360-1453"}, {"id": "ChIJOV9htSihlVQRPDzUyMyBBnE", "name": "GRANA Pizza Napoletana", "address": "2811 E Burnside St, Portland, OR 97214, USA", "lat": 45.522995, "lng": -122.636992, "rating": 4.7, "rating_count": 346, "category": "restaurant", "label": "Pizza", "price_level": null, "distance_mi": 0.013, "phone": "+1 971-509-2646"}, {"id": "ChIJqxM-Gb-glVQRI38A12wUxHI", "name": "Navarre", "address": "10 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523135, "lng": -122.637057, "rating": 4.5, "rating_count": 385, "category": "restaurant", "label": "Mediterranean", "price_level": 2, "distance_mi": 0.023, "phone": "+1 503-232-3555"}, {"id": "ChIJp5V-Ar-glVQR4YOIy-o0qzU", "name": "Cheese & Crack Snack Shop", "address": "22 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.522458, "lng": -122.637122, "rating": 4.6, "rating_count": 905, "category": "dessert", "label": "Ice Cream", "price_level": 2, "distance_mi": 0.024, "phone": "+1 503-206-7315"}, {"id": "ChIJY05KGL-glVQRC83U0kXxCHM", "name": "Angel Face", "address": "14 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523214, "lng": -122.637125, "rating": 4.2, "rating_count": 304, "category": "bar", "label": "Wine Bar", "price_level": null, "distance_mi": 0.029, "phone": "+1 503-239-3804"}, {"id": "ChIJo89E_b6glVQRZ-r6Erd1RK4", "name": "Holman's Bar & Grill", "address": "15 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.522541, "lng": -122.637544, "rating": 4.3, "rating_count": 911, "category": "restaurant", "label": "Burgers", "price_level": 1, "distance_mi": 0.032, "phone": "+1 503-231-1093"}, {"id": "ChIJ4_XWgQ2hlVQRpSggpBcZ3UM", "name": "Too Soon", "address": "18 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.52326, "lng": -122.637124, "rating": 4.9, "rating_count": 205, "category": "bar", "label": "Cocktail Bar", "price_level": null, "distance_mi": 0.032, "phone": "+1 971-380-0548"}, {"id": "ChIJp5J1Gr-glVQRn3rJF6y_r1s", "name": "Whole Foods Market", "address": "2825 E Burnside St, Portland, OR 97214, USA", "lat": 45.523277, "lng": -122.636785, "rating": 4.0, "rating_count": 1038, "category": "bakery", "label": "Bakery", "price_level": 3, "distance_mi": 0.035, "phone": "+1 503-232-6601"}, {"id": "ChIJT6sBYWShlVQR1zNrploN9Ok", "name": "Moon Pocha", "address": "28 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523387, "lng": -122.637052, "rating": 4.7, "rating_count": 197, "category": "restaurant", "label": "Korean", "price_level": null, "distance_mi": 0.041, "phone": "+1 971-430-0769"}, {"id": "ChIJYf1fPL-glVQRv0XQSxbCF18", "name": "La Buca", "address": "40 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523464, "lng": -122.637097, "rating": 4.2, "rating_count": 447, "category": "coffee", "label": "Coffee", "price_level": 2, "distance_mi": 0.046, "phone": "+1 503-238-1058"}, {"id": "ChIJY2asPb-glVQR6Acys6f-060", "name": "HunnyMilk", "address": "40 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523464, "lng": -122.637097, "rating": 4.4, "rating_count": 1072, "category": "restaurant", "label": "Brunch", "price_level": 2, "distance_mi": 0.046, "phone": "+1 503-238-1058"}, {"id": "ChIJP2lK2n6hlVQR0FMHC0zqsXc", "name": "Moonshot Tavern", "address": "2725 SE Ankeny St, Portland, OR 97214, USA", "lat": 45.522251, "lng": -122.637581, "rating": 4.7, "rating_count": 125, "category": "bar", "label": "Cocktail Bar", "price_level": null, "distance_mi": 0.047, "phone": "+1 503-477-6839"}, {"id": "ChIJe-4D-b6glVQROt7bLVi4Vwg", "name": "Crema Coffee + Bakery", "address": "2728 SE Ankeny St, Portland, OR 97214, USA", "lat": 45.522015, "lng": -122.637465, "rating": 4.4, "rating_count": 932, "category": "bakery", "label": "Bakery", "price_level": 1, "distance_mi": 0.059, "phone": "+1 503-234-0206"}, {"id": "ChIJp1UFAf-hlVQRrKNMg4lJvHU", "name": "Gorges Beer Co. - SE Portland", "address": "2724 SE Ankeny St, Portland, OR 97214, USA", "lat": 45.521993, "lng": -122.637746, "rating": 4.6, "rating_count": 104, "category": "restaurant", "label": "Mexican", "price_level": null, "distance_mi": 0.066, "phone": "+1 503-455-4674"}, {"id": "ChIJk55KtVGhlVQR8qABUxvsAJg", "name": "Bull Run Pizza", "address": "108 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523788, "lng": -122.63705, "rating": 4.7, "rating_count": 202, "category": "restaurant", "label": "Pizza", "price_level": null, "distance_mi": 0.068, "phone": "+1 971-279-5626"}, {"id": "ChIJvaGVV76glVQRbAEWIK7hm7c", "name": "Captured Beer Bus", "address": "113 SE 28th Ave, Portland, OR 97202, USA", "lat": 45.521885, "lng": -122.637524, "rating": 4.8, "rating_count": 71, "category": "food_truck", "label": "Food Carts", "price_level": 1, "distance_mi": 0.068, "phone": null}, {"id": "ChIJVZoi7m-hlVQRNxnWjvOr4zI", "name": "Pod 28 Laurelhurst Food Carts", "address": "113 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521874, "lng": -122.637518, "rating": 4.7, "rating_count": 92, "category": "food_truck", "label": "Food Carts", "price_level": null, "distance_mi": 0.069, "phone": null}, {"id": "ChIJw-_IV76glVQRyB7yEWrcqdc", "name": "Saint Burrito", "address": "113 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521862, "lng": -122.637463, "rating": 4.6, "rating_count": 293, "category": "restaurant", "label": "Mexican", "price_level": 1, "distance_mi": 0.069, "phone": "+1 503-789-2303"}, {"id": "ChIJgX6dtxShlVQRy-6SSGfS3c0", "name": "28th Ave food carts", "address": "119 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521864, "lng": -122.637575, "rating": 5.0, "rating_count": 1, "category": "food_truck", "label": "Food Carts", "price_level": null, "distance_mi": 0.07, "phone": null}, {"id": "ChIJx2rYV76glVQRjhuDUuuTO1g", "name": "Egyptian Bros.", "address": "113 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521848, "lng": -122.637642, "rating": 4.6, "rating_count": 196, "category": "restaurant", "label": "Mediterranean", "price_level": 1, "distance_mi": 0.073, "phone": "+1 971-506-2145"}, {"id": "ChIJCxAcWL6glVQRGpLdOgoQunc", "name": "FOMO Chicken", "address": "113 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521807, "lng": -122.637629, "rating": 4.5, "rating_count": 264, "category": "restaurant", "label": "Korean", "price_level": 2, "distance_mi": 0.075, "phone": "+1 503-308-0258"}, {"id": "ChIJw1zvOb-glVQRUNc4pvb8Ht8", "name": "Beulahland", "address": "118 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.523933, "lng": -122.637001, "rating": 4.4, "rating_count": 676, "category": "restaurant", "label": "American", "price_level": 1, "distance_mi": 0.078, "phone": "+1 503-719-6458"}, {"id": "ChIJQ7l0WL6glVQR5-O2AnB_xTs", "name": "Ton Kao Thai", "address": "113 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521733, "lng": -122.637705, "rating": 4.2, "rating_count": 45, "category": "restaurant", "label": "Thai", "price_level": 1, "distance_mi": 0.081, "phone": "+1 503-803-4167"}, {"id": "ChIJoUGSN7-glVQRUNbGky0NFPo", "name": "City State Diner and Bakery", "address": "128 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.524028, "lng": -122.637056, "rating": 4.6, "rating_count": 1372, "category": "restaurant", "label": "Brunch", "price_level": 2, "distance_mi": 0.085, "phone": "+1 503-517-0347"}, {"id": "ChIJJ0cD-L6glVQRnJE2RMJfUYY", "name": "Vino", "address": "137 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.521585, "lng": -122.637414, "rating": 5.0, "rating_count": 82, "category": "grocery", "label": "Market", "price_level": 2, "distance_mi": 0.086, "phone": "+1 503-816-6224"}, {"id": "ChIJ2yLaV76glVQRZvH4GMoeBTY", "name": "G\u00fcero", "address": "200 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.524469, "lng": -122.637029, "rating": 4.7, "rating_count": 1998, "category": "restaurant", "label": "Mexican", "price_level": 2, "distance_mi": 0.115, "phone": "+1 503-887-9258"}, {"id": "ChIJqRBjs7iglVQRdP23LXAzJPY", "name": "Staccato Gelato", "address": "232 NE 28th Ave #3148, Portland, OR 97232, USA", "lat": 45.52487, "lng": -122.637035, "rating": 4.4, "rating_count": 445, "category": "dessert", "label": "Ice Cream", "price_level": 1, "distance_mi": 0.143, "phone": "+1 503-231-7100"}, {"id": "ChIJyetGFb6glVQRAKXnO6xBLoM", "name": "Ken's Artisan Pizza", "address": "304 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.520591, "lng": -122.637103, "rating": 4.5, "rating_count": 2007, "category": "restaurant", "label": "Pizza", "price_level": 2, "distance_mi": 0.153, "phone": "+1 503-517-9951"}, {"id": "ChIJd5hDFb6glVQRgmGDkwkcZtc", "name": "Bamboo Sushi", "address": "310 SE 28th Ave, Portland, OR 97214, USA", "lat": 45.520522, "lng": -122.637119, "rating": 4.5, "rating_count": 1107, "category": "restaurant", "label": "Japanese", "price_level": 2, "distance_mi": 0.157, "phone": "+1 503-232-5255"}, {"id": "ChIJZUIJub6glVQR9UV3rm3ElOo", "name": "Ate-Oh-Ate", "address": "2454 E Burnside St, Portland, OR 97214, USA", "lat": 45.522656, "lng": -122.640256, "rating": 4.5, "rating_count": 1068, "category": "restaurant", "label": "Hawaiian", "price_level": 2, "distance_mi": 0.158, "phone": "+1 503-445-6101"}, {"id": "ChIJC8XBiooJlVQRW_c_5zpvImI", "name": "Mikiko Mochi Donuts", "address": "300 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.525158, "lng": -122.637065, "rating": 4.8, "rating_count": 574, "category": "bakery", "label": "Donuts", "price_level": 2, "distance_mi": 0.163, "phone": "+1 480-227-5155"}, {"id": "ChIJfcK8u76glVQRrGwwsGh_7z0", "name": "Tusk", "address": "2448 E Burnside St, Portland, OR 97214, USA", "lat": 45.522637, "lng": -122.640494, "rating": 4.6, "rating_count": 1180, "category": "restaurant", "label": "Mediterranean", "price_level": 3, "distance_mi": 0.169, "phone": "+1 503-894-8082"}, {"id": "ChIJ68mEur6glVQR3zyeaK_7jYM", "name": "Matador East Portland", "address": "2424 E Burnside St, Portland, OR 97214, USA", "lat": 45.522629, "lng": -122.640894, "rating": 4.4, "rating_count": 2544, "category": "restaurant", "label": "Mexican", "price_level": 2, "distance_mi": 0.189, "phone": "+1 503-719-5757"}, {"id": "ChIJNd_wdJuhlVQRvw5aLMPyu6g", "name": "Montelupo Italian Market", "address": "344 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.525645, "lng": -122.637081, "rating": 4.4, "rating_count": 608, "category": "bakery", "label": "Bakery", "price_level": 2, "distance_mi": 0.197, "phone": "+1 503-719-5650"}, {"id": "ChIJB6x1lKOhlVQRp6_x2ocILew", "name": "Neighbours Table Coffee and Commons", "address": "2830 NE Flanders St, Portland, OR 97232, USA", "lat": 45.525616, "lng": -122.636269, "rating": 4.7, "rating_count": 74, "category": "coffee", "label": "Coffee", "price_level": null, "distance_mi": 0.198, "phone": "+1 503-395-7123"}, {"id": "ChIJiX5on7iglVQRqGNTsndROlM", "name": "Stammtisch", "address": "401 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.525866, "lng": -122.637465, "rating": 4.7, "rating_count": 2130, "category": "restaurant", "label": "German", "price_level": 2, "distance_mi": 0.213, "phone": "+1 503-206-7983"}, {"id": "ChIJBY9JoLiglVQRV-S-FrdHK_g", "name": "Epif", "address": "404 NE 28th Ave, Portland, OR 97232, USA", "lat": 45.525915, "lng": -122.636986, "rating": 4.6, "rating_count": 382, "category": "restaurant", "label": "Brunch", "price_level": 2, "distance_mi": 0.215, "phone": "+1 971-254-8680"}, {"id": "ChIJp5kOVq2hlVQRcVB2ZZOtNeQ", "name": "FIKA", "address": "2435 SE Pine St, Portland, OR 97214, USA", "lat": 45.520951, "lng": -122.640646, "rating": 5.0, "rating_count": 12, "category": "bakery", "label": "Bakery", "price_level": null, "distance_mi": 0.218, "phone": "+1 503-238-4482"}, {"id": "ChIJu1MQrL6glVQRNuGYoTmvBoY", "name": "Screen Door Eastside", "address": "2337 E Burnside St, Portland, OR 97214, USA", "lat": 45.523017, "lng": -122.641625, "rating": 4.7, "rating_count": 7594, "category": "restaurant", "label": "Brunch", "price_level": 2, "distance_mi": 0.224, "phone": "+1 503-542-0880"}, {"id": "ChIJXah8HryglVQRd1NOGl9G54A", "name": "The Slide Inn", "address": "2348 SE Ankeny St, Portland, OR 97214, USA", "lat": 45.522072, "lng": -122.641583, "rating": 4.7, "rating_count": 776, "category": "restaurant", "label": "Italian", "price_level": 2, "distance_mi": 0.228, "phone": "+1 503-341-1381"}, {"id": "ChIJqfNQw62hlVQRBjNKz13q2K0", "name": "No Preference Coffee", "address": "2327 E Burnside St, Portland, OR 97214, USA", "lat": 45.523045, "lng": -122.64176, "rating": 4.9, "rating_count": 271, "category": "coffee", "label": "Coffee", "price_level": null, "distance_mi": 0.231, "phone": "+1 503-484-6903"}, {"id": "ChIJPTqg95WglVQRlQ404FrXiDI", "name": "Baby Doll Pizza", "address": "2835 SE Stark St, Portland, OR 97214, USA", "lat": 45.519444, "lng": -122.636482, "rating": 4.6, "rating_count": 2210, "category": "restaurant", "label": "Pizza", "price_level": 1, "distance_mi": 0.233, "phone": "+1 503-459-4450"}, {"id": "ChIJx2znZ8eglVQRzDNDfxa816Y", "name": "Migration Brewing - Glisan", "address": "2828 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526222, "lng": -122.636431, "rating": 4.4, "rating_count": 1282, "category": "bar", "label": "Brewery", "price_level": 2, "distance_mi": 0.238, "phone": "+1 503-206-5221"}, {"id": "ChIJpbq0ZcCglVQRyCN9m__XcpY", "name": "Laurelhurst Market", "address": "3155 E Burnside St, Portland, OR 97214, USA", "lat": 45.523187, "lng": -122.632036, "rating": 4.5, "rating_count": 1044, "category": "grocery", "label": "Butcher", "price_level": 3, "distance_mi": 0.242, "phone": "+1 503-206-3097"}, {"id": "ChIJVZ-N_BGhlVQRU7WJ4dXzfdg", "name": "El Jarrito Taqueria", "address": "2810 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526309, "lng": -122.636986, "rating": 4.9, "rating_count": 17, "category": "restaurant", "label": "Mexican", "price_level": null, "distance_mi": 0.242, "phone": "+1 503-935-6034"}, {"id": "ChIJX4P4wBWhlVQRbczUVs65tE4", "name": "Kyrgyzstan Food", "address": "2819 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526307, "lng": -122.636858, "rating": 4.7, "rating_count": 54, "category": "food_truck", "label": "Food Carts", "price_level": null, "distance_mi": 0.242, "phone": "+1 360-210-8483"}, {"id": "ChIJgSmW9x2hlVQRcaYCN-BPaSU", "name": "Gyro Kingdom", "address": "2810 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526309, "lng": -122.636986, "rating": 5.0, "rating_count": 33, "category": "restaurant", "label": "Restaurant", "price_level": null, "distance_mi": 0.242, "phone": "+1 503-676-7332"}, {"id": "ChIJVfAvRQChlVQR_FRI3peQ_1k", "name": "28th Parallel Food Carts", "address": "2810 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526324, "lng": -122.636966, "rating": 4.7, "rating_count": 26, "category": "food_truck", "label": "Food Carts", "price_level": null, "distance_mi": 0.243, "phone": "+1 503-807-9669"}, {"id": "ChIJGSdpIYihlVQR8N_zWQ6FNGo", "name": "Puff Coffee", "address": "2816 SE Stark St, Portland, OR 97214, USA", "lat": 45.519165, "lng": -122.636923, "rating": 4.6, "rating_count": 126, "category": "coffee", "label": "Coffee", "price_level": null, "distance_mi": 0.251, "phone": "+1 503-719-9059"}, {"id": "ChIJE1soNvmhlVQRFnRwuLJYWpQ", "name": "SORO SORO Coffee & Dessert", "address": "2250 E Burnside St, Portland, OR 97214, USA", "lat": 45.522676, "lng": -122.642413, "rating": 4.8, "rating_count": 694, "category": "coffee", "label": "Tea", "price_level": 2, "distance_mi": 0.262, "phone": "+1 971-449-6577"}, {"id": "ChIJF01MZceglVQRCidFEomPY2k", "name": "Pambiche", "address": "2811 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526625, "lng": -122.636933, "rating": 4.6, "rating_count": 2376, "category": "restaurant", "label": "Latin", "price_level": 2, "distance_mi": 0.264, "phone": "+1 503-233-0511"}, {"id": "ChIJ55YyxNihlVQRJDh3sT88NeI", "name": "28TH FOOD MART", "address": "2731 NE Glisan St, Portland, OR 97232, USA", "lat": 45.52673, "lng": -122.637471, "rating": 4.7, "rating_count": 26, "category": "grocery", "label": "Market", "price_level": null, "distance_mi": 0.272, "phone": "+1 503-232-9626"}, {"id": "ChIJKXOiFceglVQR6F5TjEacj8k", "name": "Dove Vivi", "address": "2727 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526709, "lng": -122.637635, "rating": 4.7, "rating_count": 680, "category": "restaurant", "label": "Pizza", "price_level": 2, "distance_mi": 0.272, "phone": "+1 503-239-4444"}, {"id": "ChIJyfxKmuihlVQRqhG4tu6jY-s", "name": "Domingo's", "address": "2935 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526766, "lng": -122.635165, "rating": 4.9, "rating_count": 152, "category": "restaurant", "label": "Mexican", "price_level": null, "distance_mi": 0.288, "phone": "+1 971-351-8855"}, {"id": "ChIJMwBR-buglVQRzwvDEFhtzag", "name": "Davenport", "address": "2215 E Burnside St, Portland, OR 97232, USA", "lat": 45.523056, "lng": -122.643056, "rating": 4.5, "rating_count": 187, "category": "restaurant", "label": "American", "price_level": 3, "distance_mi": 0.294, "phone": null}, {"id": "ChIJZV6m-buglVQR0sMmh83Ajo8", "name": "Heart Coffee (Burnside)", "address": "2211 E Burnside St, Portland, OR 97214, USA", "lat": 45.523025, "lng": -122.643196, "rating": 4.5, "rating_count": 705, "category": "coffee", "label": "Coffee", "price_level": 2, "distance_mi": 0.3, "phone": "+1 503-206-6602"}, {"id": "ChIJEyYZ-7uglVQRtSUGq_x9umI", "name": "Standard Tavern", "address": "14 NE 22nd Ave, Portland, OR 97232, USA", "lat": 45.523169, "lng": -122.643226, "rating": 4.5, "rating_count": 453, "category": "bar", "label": "Bar", "price_level": 1, "distance_mi": 0.302, "phone": "+1 503-233-4181"}, {"id": "ChIJU6CD87uglVQRgUNYEgg3234", "name": "Luce", "address": "2140 E Burnside St, Portland, OR 97214, USA", "lat": 45.522744, "lng": -122.643664, "rating": 4.6, "rating_count": 735, "category": "restaurant", "label": "Italian", "price_level": 2, "distance_mi": 0.323, "phone": "+1 503-236-7195"}, {"id": "ChIJYXsi8buglVQRiGthmhOJQyg", "name": "Ol\u00e9 Ol\u00e9", "address": "2137 E Burnside St, Portland, OR 97214, USA", "lat": 45.523165, "lng": -122.64379, "rating": 4.6, "rating_count": 1148, "category": "restaurant", "label": "Mexican", "price_level": 1, "distance_mi": 0.33, "phone": "+1 503-230-1132"}, {"id": "ChIJkcdW5buglVQRfW3F88qZN2s", "name": "Sammich Portland", "address": "2137 E Burnside St, Portland, OR 97214, USA", "lat": 45.523165, "lng": -122.64379, "rating": 4.6, "rating_count": 777, "category": "restaurant", "label": "Sandwiches", "price_level": 2, "distance_mi": 0.33, "phone": "+1 503-477-4393"}, {"id": "ChIJO-QljU-hlVQRUoPZPAsALZw", "name": "Tropicale", "address": "2337 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526659, "lng": -122.641631, "rating": 4.5, "rating_count": 515, "category": "restaurant", "label": "Mexican", "price_level": 2, "distance_mi": 0.348, "phone": "+1 503-894-9484"}, {"id": "ChIJb8mZQwOhlVQRH-YQnzvoHes", "name": "Slow Haste Coffee", "address": "2341 NE Glisan St, Portland, OR 97232, USA", "lat": 45.52669, "lng": -122.641601, "rating": 5.0, "rating_count": 118, "category": "coffee", "label": "Coffee", "price_level": null, "distance_mi": 0.349, "phone": "+1 971-383-5166"}, {"id": "ChIJTWMejlahlVQRZYQUT8UxDB8", "name": "Collector", "address": "2341 NE Glisan St, Portland, OR 97232, USA", "lat": 45.52669, "lng": -122.641601, "rating": 4.9, "rating_count": 67, "category": "bar", "label": "Bar", "price_level": null, "distance_mi": 0.349, "phone": "+1 971-383-5166"}, {"id": "ChIJqb3KsW6hlVQR-iYMAYCKY5w", "name": "Friendship Vietnamese Kitchen", "address": "2333 NE Glisan St, Portland, OR 97232, USA", "lat": 45.526668, "lng": -122.641746, "rating": 4.6, "rating_count": 547, "category": "restaurant", "label": "Vietnamese", "price_level": 2, "distance_mi": 0.352, "phone": "+1 971-427-5219"}, {"id": "ChIJPSWjfoaglVQRuYoceI_7q64", "name": "The Pie Spot", "address": "521 NE 24th Ave, Portland, OR 97232, USA", "lat": 45.526888, "lng": -122.641566, "rating": 4.6, "rating_count": 803, "category": "bakery", "label": "Bakery", "price_level": 1, "distance_mi": 0.359, "phone": "+1 503-913-5103"}, {"id": "ChIJpT2LSLiglVQRX93h8i2F_Yo", "name": "Han Oak", "address": "511 NE 24th Ave, Portland, OR 97232, USA", "lat": 45.526807, "lng": -122.641835, "rating": 4.5, "rating_count": 795, "category": "restaurant", "label": "Korean", "price_level": 3, "distance_mi": 0.363, "phone": "+1 971-255-0032"}, {"id": "ChIJ9aMYPGOhlVQRmLfteGPEqVc", "name": "Dear Sandy", "address": "2800 NE Sandy Blvd, Portland, OR 97232, USA", "lat": 45.529053, "lng": -122.636912, "rating": 4.8, "rating_count": 188, "category": "coffee", "label": "Coffee", "price_level": null, "distance_mi": 0.432, "phone": null}, {"id": "ChIJP_We7zqhlVQRGbqygbc2uwM", "name": "Tight Tacos", "address": "2707 NE Sandy Blvd, Portland, OR 97232, USA", "lat": 45.529002, "lng": -122.638077, "rating": 4.1, "rating_count": 230, "category": "restaurant", "label": "Mexican", "price_level": 1, "distance_mi": 0.432, "phone": null}, {"id": "ChIJ8yEmeSehlVQRhUNHa36ID70", "name": "Hello Pho, Banh mi & Boba", "address": "2713 NE Sandy Blvd, Portland, OR 97232, USA", "lat": 45.529036, "lng": -122.63805, "rating": 4.6, "rating_count": 73, "category": "restaurant", "label": "Vietnamese", "price_level": 1, "distance_mi": 0.434, "phone": "+1 503-841-5149"}, {"id": "ChIJu5ZP2seglVQRjU5Fw-i2VdU", "name": "The Zipper", "address": "2705 NE Sandy Blvd, Portland, OR 97232, USA", "lat": 45.529137, "lng": -122.638158, "rating": 4.6, "rating_count": 386, "category": "food_truck", "label": "Food Carts", "price_level": 1, "distance_mi": 0.441, "phone": null}, {"id": "ChIJS5Fy6MeglVQRRJ0-w6mWK_Y", "name": "Seven Virtues Coffee at the Zipper", "address": "2737 NE Sandy Blvd, Portland, OR 97232, USA", "lat": 45.529168, "lng": -122.63755, "rating": 4.3, "rating_count": 264, "category": "coffee", "label": "Coffee", "price_level": 1, "distance_mi": 0.441, "phone": "+1 971-271-8958"}, {"id": "ChIJ_Q4zx1OhlVQRmf4jzgQIa4Y", "name": "ForeLand Beer - Belmont", "address": "2511 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516628, "lng": -122.639765, "rating": 4.8, "rating_count": 73, "category": "bar", "label": "Brewery", "price_level": null, "distance_mi": 0.447, "phone": null}, {"id": "ChIJTw9n9ZihlVQRiBCTsXq5of0", "name": "Bluto's", "address": "2838 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516272, "lng": -122.636329, "rating": 4.6, "rating_count": 712, "category": "restaurant", "label": "Greek", "price_level": 2, "distance_mi": 0.452, "phone": "+1 971-383-1619"}, {"id": "ChIJoxvox_ChlVQRc0WRTXUIWdo", "name": "The Vern", "address": "2622 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516356, "lng": -122.638591, "rating": 4.5, "rating_count": 434, "category": "bar", "label": "Bar", "price_level": 1, "distance_mi": 0.452, "phone": "+1 503-327-8893"}, {"id": "ChIJN1K_WtKhlVQRwyUP_LapxSM", "name": "The Mont", "address": "2411 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516567, "lng": -122.641221, "rating": 4.6, "rating_count": 547, "category": "restaurant", "label": "French", "price_level": 2, "distance_mi": 0.477, "phone": "+1 503-889-0102"}, {"id": "ChIJ6yj9JcmhlVQRUPCXxpw7pv0", "name": "Rose Rooted PDX Elixir Bar & Cafe", "address": "2505 NE Pacific St, Portland, OR 97232, USA", "lat": 45.529439, "lng": -122.639803, "rating": 5.0, "rating_count": 5, "category": "coffee", "label": "Coffee", "price_level": null, "distance_mi": 0.478, "phone": null}, {"id": "ChIJqQ9sQA6nlVQRFewpK9i-v88", "name": "Mirisata", "address": "2420 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516312, "lng": -122.640999, "rating": 4.6, "rating_count": 952, "category": "restaurant", "label": "Sri Lankan", "price_level": 2, "distance_mi": 0.488, "phone": "+1 503-233-4675"}, {"id": "ChIJCxBvRm6hlVQRO9GYE0JrcI0", "name": "Cooper's Co-op Cafe", "address": "2420 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516195, "lng": -122.641002, "rating": 4.5, "rating_count": 47, "category": "restaurant", "label": "Brunch", "price_level": null, "distance_mi": 0.496, "phone": "+1 503-233-4675"}, {"id": "ChIJ4fAWDLuglVQRZWSJdYBYIjs", "name": "The Eastburn", "address": "1800 E Burnside St, Portland, OR 97214, USA", "lat": 45.522706, "lng": -122.647321, "rating": 4.4, "rating_count": 1907, "category": "restaurant", "label": "Brunch", "price_level": 2, "distance_mi": 0.5, "phone": "+1 503-236-2876"}, {"id": "ChIJm-wvQm-hlVQRGYUD5Uh3tSY", "name": "Jade Rabbit", "address": "2304 SE Belmont St, Portland, OR 97232, USA", "lat": 45.516303, "lng": -122.64214, "rating": 4.5, "rating_count": 570, "category": "restaurant", "label": "Vegan", "price_level": null, "distance_mi": 0.513, "phone": "+1 503-793-7798"}, {"id": "ChIJU0gy4iOhlVQRFLKCefSZKn4", "name": "Old Pal", "address": "3350 SE Morrison St, Portland, OR 97214, USA", "lat": 45.517076, "lng": -122.629826, "rating": 4.8, "rating_count": 91, "category": "restaurant", "label": "Restaurant", "price_level": null, "distance_mi": 0.526, "phone": "+1 503-477-9663"}, {"id": "ChIJnaJaEDShlVQRRwroj3FAMUc", "name": "Eris Cocktail Lounge", "address": "817 SE 34th Ave, Portland, OR 97214, USA", "lat": 45.516923, "lng": -122.629764, "rating": 5.0, "rating_count": 64, "category": "bar", "label": "Cocktail Bar", "price_level": null, "distance_mi": 0.536, "phone": null}, {"id": "ChIJAfPwFLuglVQRqjEISDt4urQ", "name": "Fire on the Mountain Buffalo Wings", "address": "1708 E Burnside St, Portland, OR 97214, USA", "lat": 45.522687, "lng": -122.64827, "rating": 4.5, "rating_count": 3684, "category": "restaurant", "label": "Chicken", "price_level": 2, "distance_mi": 0.546, "phone": "+1 503-230-9464"}, {"id": "ChIJMxwB_7qglVQRI9syZfYK99o", "name": "Lemongrass", "address": "1705 NE Couch St, Portland, OR 97232, USA", "lat": 45.523787, "lng": -122.648358, "rating": 4.6, "rating_count": 226, "category": "restaurant", "label": "Thai", "price_level": 2, "distance_mi": 0.554, "phone": "+1 503-231-5780"}, {"id": "ChIJ_RB5gZSglVQRZG5L-9SSi_0", "name": "Side Street", "address": "828 SE 34th Ave, Portland, OR 97214, USA", "lat": 45.516768, "lng": -122.629391, "rating": 4.5, "rating_count": 263, "category": "bar", "label": "Cocktail Bar", "price_level": 1, "distance_mi": 0.556, "phone": "+1 503-236-7999"}, {"id": "ChIJu0k9D5iglVQRKC0tZK9YeQ8", "name": "The Low Tide Lounge", "address": "2045 SE Belmont St, Portland, OR 97214, USA", "lat": 45.516734, "lng": -122.644598, "rating": 4.5, "rating_count": 508, "category": "bar", "label": "Bar", "price_level": 1, "distance_mi": 0.558, "phone": "+1 503-477-8394"}, {"id": "ChIJddpotmyhlVQRNmUkR0AQ4Yw", "name": "Company", "address": "916 SE 34th Ave Suite B, Portland, OR 97214, USA", "lat": 45.516041, "lng": -122.629257, "rating": 4.7, "rating_count": 50, "category": "bar", "label": "Wine Bar", "price_level": null, "distance_mi": 0.599, "phone": null}];
+
+const CATEGORIES = [
+  { id: 'restaurant', label: 'Restaurants', hex: '#c2464a' },
+  { id: 'bar',        label: 'Bars',        hex: '#7b4b9d' },
+  { id: 'coffee',     label: 'Coffee',      hex: '#8b5a3c' },
+  { id: 'bakery',     label: 'Bakery',      hex: '#d67ba3' },
+  { id: 'grocery',    label: 'Grocery',     hex: '#4a7c59' },
+  { id: 'food_truck', label: 'Food carts',  hex: '#d98836' },
+  { id: 'dessert',    label: 'Dessert',     hex: '#d9b341' },
+];
+const CAT_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
+
+// ---- Elements ----------------------------------------------------------
+const filtersEl = document.getElementById('filters');
+const listEl = document.getElementById('list');
+const searchEl = document.getElementById('search');
+const clearEl = document.getElementById('clear');
+const sheet = document.getElementById('sheet');
+const sheetHandle = document.getElementById('sheet-handle');
+const sheetCount = document.getElementById('sheet-count');
+
+// ---- State -------------------------------------------------------------
+const state = {
+  search: '',
+  sort: 'distance',
+  activeCats: new Set(CATEGORIES.map(c => c.id)),
+};
+
+// ---- Map ---------------------------------------------------------------
+const CENTER = [45.5228, -122.6370];
+let map = null;
+const markers = {};
+
+function initMap() {
+  if (typeof L === 'undefined') {
+    document.getElementById('map').innerHTML =
+      '<div style="padding:24px;color:#6b635a;font-size:13px;">Map library failed to load. The list still works.</div>';
+    return;
+  }
+  map = L.map('map', {
+    center: CENTER,
+    zoom: 15,
+    zoomControl: true,
+    scrollWheelZoom: true,
+    tap: true,
+  });
+  const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    crossOrigin: true,
+  });
+  tileLayer.addTo(map);
+  // Fallback: if Carto fails, try standard OSM tiles
+  let fallbackTried = false;
+  tileLayer.on('tileerror', () => {
+    if (fallbackTried) return;
+    fallbackTried = true;
+    map.removeLayer(tileLayer);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }).addTo(map);
+  });
+  map.zoomControl.setPosition('topright');
+  // Ensure proper sizing once the layout settles
+  setTimeout(() => map.invalidateSize(), 100);
+
+  L.marker(CENTER, {
+    icon: L.divIcon({
+      className: 'center-marker-wrap',
+      html: '<div class="center-marker"></div>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    }),
+    interactive: false,
+    zIndexOffset: -500,
+  }).addTo(map);
+
+  PLACES.forEach(place => {
+    const cat = CAT_MAP[place.category] || CAT_MAP.restaurant;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="marker-dot" data-place-id="${place.id}" style="background:${cat.hex};"></div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+    const marker = L.marker([place.lat, place.lng], { icon }).addTo(map);
+    const ratingText = place.rating ? `★ ${place.rating.toFixed(1)}` +
+      (place.rating_count ? ` (${place.rating_count.toLocaleString()})` : '') : '';
+    const priceText = place.price_level ? ' · ' + '$'.repeat(place.price_level) : '';
+    marker.bindPopup(
+      `<div class="popup-name">${escapeHtml(place.name)}</div>` +
+      `<div class="popup-meta">${escapeHtml(place.label || '')}${ratingText ? ' · ' + ratingText : ''}${priceText}</div>` +
+      `<div class="popup-addr">${escapeHtml(shortAddr(place.address))}</div>`,
+      { maxWidth: 260, autoPan: true, autoPanPadding: [20, 20] }
+    );
+    marker.on('mouseover', () => highlightMarker(place.id));
+    marker.on('mouseout', () => clearHighlight());
+    marker.on('click', () => {
+      highlightMarker(place.id);
+      scrollCardIntoView(place.id);
+    });
+    markers[place.id] = marker;
+  });
+}
+
+// ---- Render ------------------------------------------------------------
+function renderFilters() {
+  const counts = {};
+  CATEGORIES.forEach(c => counts[c.id] = 0);
+  PLACES.forEach(p => { if (counts[p.category] != null) counts[p.category]++; });
+
+  filtersEl.innerHTML = '';
+
+  CATEGORIES.forEach(c => {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'pill' + (state.activeCats.has(c.id) ? ' active' : '');
+    pill.style.setProperty('--dot', c.hex);
+    pill.innerHTML = `<span class="dot"></span>${c.label}<span class="count">${counts[c.id]}</span>`;
+    pill.addEventListener('click', () => {
+      if (state.activeCats.has(c.id)) state.activeCats.delete(c.id);
+      else state.activeCats.add(c.id);
+      if (state.activeCats.size === 0) {
+        CATEGORIES.forEach(cc => state.activeCats.add(cc.id));
+      }
+      renderFilters();
+      render();
+    });
+    filtersEl.appendChild(pill);
+  });
+
+  const sortLabel = {
+    distance: 'Nearest',
+    rating: 'Top rated',
+    alpha: 'A–Z',
+    category: 'By type',
+  }[state.sort];
+
+  const sortWrap = document.createElement('div');
+  sortWrap.className = 'sort-wrap';
+  sortWrap.innerHTML = `
+    <span class="sort-btn">${sortLabel}</span>
+    <select aria-label="Sort order">
+      <option value="distance">Nearest</option>
+      <option value="rating">Top rated</option>
+      <option value="alpha">A–Z</option>
+      <option value="category">By type</option>
+    </select>
+  `;
+  const sel = sortWrap.querySelector('select');
+  sel.value = state.sort;
+  sel.addEventListener('change', () => {
+    state.sort = sel.value;
+    renderFilters();
+    render();
+  });
+  filtersEl.appendChild(sortWrap);
+}
+
+function filterAndSort() {
+  const q = state.search.trim().toLowerCase();
+  let rows = PLACES.filter(p => state.activeCats.has(p.category));
+  if (q) {
+    rows = rows.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.label || '').toLowerCase().includes(q) ||
+      (p.address || '').toLowerCase().includes(q)
+    );
+  }
+  const sorters = {
+    distance: (a, b) => a.distance_mi - b.distance_mi,
+    rating: (a, b) => (b.rating || 0) - (a.rating || 0) || (b.rating_count || 0) - (a.rating_count || 0),
+    alpha: (a, b) => a.name.localeCompare(b.name),
+    category: (a, b) => a.category.localeCompare(b.category) || a.distance_mi - b.distance_mi,
+  };
+  rows.sort(sorters[state.sort]);
+  return rows;
+}
+
+function render() {
+  const rows = filterAndSort();
+  sheetCount.textContent = rows.length + (rows.length === 1 ? ' place' : ' places');
+
+  // Update map marker visibility
+  const visibleIds = new Set(rows.map(r => r.id));
+  if (map) {
+    Object.keys(markers).forEach(id => {
+      const m = markers[id];
+      const shouldShow = visibleIds.has(id);
+      const isOn = map.hasLayer(m);
+      if (shouldShow && !isOn) m.addTo(map);
+      else if (!shouldShow && isOn) map.removeLayer(m);
+    });
+  }
+
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="empty">No places match.<br><span style="color:var(--ink-muted);font-size:12.5px;">Try clearing the search or filters.</span></div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  rows.forEach(p => {
+    const cat = CAT_MAP[p.category] || CAT_MAP.restaurant;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.setAttribute('role', 'listitem');
+    card.dataset.placeId = p.id;
+    card.style.setProperty('--dot', cat.hex);
+
+    const ratingHtml = p.rating ? `<span class="rating">★ ${p.rating.toFixed(1)}</span>` : '';
+    const rcHtml = p.rating_count ? `<span style="color:var(--ink-muted);font-size:11.5px;">(${p.rating_count.toLocaleString()})</span>` : '';
+    const priceHtml = p.price_level ? `<span class="sep"></span><span class="price">${'$'.repeat(p.price_level)}</span>` : '';
+    const subHtml = p.label ? `<span class="sep"></span>${escapeHtml(p.label)}` : '';
+
+    card.innerHTML = `
+      <div class="card-dot"></div>
+      <div class="card-body">
+        <div class="card-name">${escapeHtml(p.name)}</div>
+        <div class="card-meta">${ratingHtml}${rcHtml}${subHtml}${priceHtml}</div>
+        <div class="card-addr">${escapeHtml(shortAddr(p.address))}</div>
+      </div>
+      <div class="card-dist">${p.distance_mi.toFixed(2)} mi</div>
+    `;
+
+    card.addEventListener('mouseenter', () => highlightMarker(p.id));
+    card.addEventListener('mouseleave', () => clearHighlight());
+    card.addEventListener('click', () => focusPlace(p.id));
+    frag.appendChild(card);
+  });
+  listEl.innerHTML = '';
+  listEl.appendChild(frag);
+}
+
+// ---- Highlight sync ----------------------------------------------------
+let currentHighlight = null;
+function highlightMarker(id) {
+  if (currentHighlight === id) return;
+  clearHighlight();
+  currentHighlight = id;
+  const m = markers[id];
+  if (m && m._icon) {
+    const dot = m._icon.querySelector('.marker-dot');
+    if (dot) dot.classList.add('highlight');
+    m._icon.classList.add('highlight-parent');
+  }
+  const card = listEl.querySelector(`[data-place-id="${CSS.escape(id)}"]`);
+  if (card) card.classList.add('highlighted');
+}
+function clearHighlight() {
+  if (!currentHighlight) return;
+  const m = markers[currentHighlight];
+  if (m && m._icon) {
+    const dot = m._icon.querySelector('.marker-dot');
+    if (dot) dot.classList.remove('highlight');
+    m._icon.classList.remove('highlight-parent');
+  }
+  const card = listEl.querySelector(`[data-place-id="${CSS.escape(currentHighlight)}"]`);
+  if (card) card.classList.remove('highlighted');
+  currentHighlight = null;
+}
+
+function scrollCardIntoView(id) {
+  const card = listEl.querySelector(`[data-place-id="${CSS.escape(id)}"]`);
+  if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function focusPlace(id) {
+  const m = markers[id];
+  if (!m || !map) return;
+  const latlng = m.getLatLng();
+  const isMobile = window.innerWidth < 768;
+  if (isMobile && sheet.classList.contains('expanded')) {
+    sheet.classList.remove('expanded');
+    setTimeout(() => {
+      map.setView(latlng, Math.max(map.getZoom(), 16), { animate: true });
+      m.openPopup();
+      map.invalidateSize();
+    }, 320);
+  } else {
+    map.setView(latlng, Math.max(map.getZoom(), 16), { animate: true });
+    m.openPopup();
+  }
+  highlightMarker(id);
+}
+
+// ---- Search ------------------------------------------------------------
+let searchTimer;
+searchEl.addEventListener('input', () => {
+  state.search = searchEl.value;
+  clearEl.classList.toggle('visible', !!state.search);
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(render, 120);
+});
+clearEl.addEventListener('click', () => {
+  searchEl.value = '';
+  state.search = '';
+  clearEl.classList.remove('visible');
+  render();
+  searchEl.focus();
+});
+searchEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchEl.blur();
+});
+
+// ---- Center map button -------------------------------------------------
+// Portland blocks are ~200ft; 5 blocks ≈ 1000ft ≈ 0.19mi.
+// Zoom 16 on a typical screen shows ~0.25mi radius, good fit for a 5-block view.
+const CENTER_MAP_ZOOM = 16;
+const centerBtn = document.getElementById('center-map');
+centerBtn.addEventListener('click', () => {
+  if (!map) return;
+  // On mobile, collapse sheet first so map is fully visible
+  if (window.innerWidth < 768 && sheet.classList.contains('expanded')) {
+    sheet.classList.remove('expanded');
+    setTimeout(() => {
+      map.invalidateSize();
+      map.flyTo(CENTER, CENTER_MAP_ZOOM, { duration: 0.6 });
+    }, 320);
+  } else {
+    map.flyTo(CENTER, CENTER_MAP_ZOOM, { duration: 0.6 });
+  }
+  clearHighlight();
+  map.closePopup();
+});
+
+// ---- Bottom sheet drag (mobile) ----------------------------------------
+(function wireSheet() {
+  const peek = 140; // matches --sheet-peek
+  let startY = 0;
+  let startTY = 0;
+  let dragging = false;
+  let sheetH = 0;
+  let moved = false;
+
+  function getTY() {
+    const t = window.getComputedStyle(sheet).transform;
+    if (!t || t === 'none') return 0;
+    const m = t.match(/matrix\((.+)\)/);
+    if (!m) return 0;
+    const vals = m[1].split(',').map(s => parseFloat(s.trim()));
+    return vals[5] || 0;
+  }
+
+  function onStart(clientY) {
+    if (window.innerWidth >= 768) return;
+    startY = clientY;
+    sheetH = sheet.offsetHeight;
+    startTY = getTY();
+    dragging = true;
+    moved = false;
+    sheet.classList.add('dragging');
+  }
+
+  function onMove(clientY, ev) {
+    if (!dragging) return;
+    const delta = clientY - startY;
+    if (Math.abs(delta) > 4) moved = true;
+    const collapsedY = sheetH - peek;
+    let y = startTY + delta;
+    y = Math.max(0, Math.min(collapsedY, y));
+    sheet.style.transform = `translateY(${y}px)`;
+    if (ev && ev.cancelable) ev.preventDefault();
+  }
+
+  function onEnd() {
+    if (!dragging) return;
+    dragging = false;
+    sheet.classList.remove('dragging');
+    const y = getTY();
+    sheet.style.transform = '';
+    const collapsedY = sheetH - peek;
+
+    if (!moved) {
+      // Tap: toggle
+      sheet.classList.toggle('expanded');
+    } else {
+      // Drag: snap based on position
+      if (y < collapsedY * 0.45) {
+        sheet.classList.add('expanded');
+      } else {
+        sheet.classList.remove('expanded');
+      }
+    }
+  }
+
+  sheetHandle.addEventListener('touchstart', e => {
+    onStart(e.touches[0].clientY);
+  }, { passive: true });
+  sheetHandle.addEventListener('touchmove', e => {
+    onMove(e.touches[0].clientY, e);
+  }, { passive: false });
+  sheetHandle.addEventListener('touchend', onEnd);
+  sheetHandle.addEventListener('touchcancel', onEnd);
+
+  sheetHandle.addEventListener('mousedown', e => {
+    onStart(e.clientY);
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (dragging) onMove(e.clientY, e);
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragging) onEnd();
+  });
+
+  sheetHandle.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      sheet.classList.toggle('expanded');
+    }
+  });
+})();
+
+// ---- Resize handling ---------------------------------------------------
+let lastIsMobile = window.innerWidth < 768;
+window.addEventListener('resize', () => {
+  const isMobile = window.innerWidth < 768;
+  if (isMobile !== lastIsMobile) {
+    lastIsMobile = isMobile;
+    sheet.style.transform = '';
+    sheet.classList.remove('expanded', 'dragging');
+  }
+  if (map) setTimeout(() => map.invalidateSize(), 50);
+});
+
+// ---- Helpers -----------------------------------------------------------
+function shortAddr(a) {
+  if (!a) return '';
+  return a.replace(/, Portland, OR.*/, '').replace(/, USA$/, '');
+}
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+// ---- Boot --------------------------------------------------------------
+initMap();
+renderFilters();
+render();
+</script>
+</body>
+</html>
